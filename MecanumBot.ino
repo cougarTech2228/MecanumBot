@@ -20,8 +20,8 @@ static const int SERVO_SAFETY_MARGIN = 20;
 static const int TURN_CORRECTION = 10;
 static const int TURN_COMPENSATION = 7;
 
-static const int RADIOLINK_TURN_CHANNEL = 2;
-static const int RADIOLINK_THROTTLE_CHANNEL = 1;
+static const int RADIOLINK_TURN_CHANNEL = 1;
+static const int RADIOLINK_THROTTLE_CHANNEL = 2;
 static const int RADIOLINK_STRAFE_CHANNEL = 4;
 static const int RADIOLINK_SHOOT_CANDY_CHANNEL = 6;
 
@@ -237,9 +237,9 @@ void processSBusBuffer()
    handleDriveMotors()
  **************************************************************/
 void handleDriveMotors() {
-  int throttle = -map(radioLinkThrottleValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
+  int turn = map(radioLinkThrottleValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
   int strafe = map(radioLinkStrafeValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
-  int turn = map(radioLinkTurnValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
+  int throttle = -map(radioLinkTurnValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
 
   throttle = applyDeadband(throttle);
   strafe = applyDeadband(strafe);
