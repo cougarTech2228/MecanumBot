@@ -1,7 +1,10 @@
 #include <Servo.h>
 #include <SoftwareSerial.h>
+#include <avr/wdt.h>
 
 static const int FAILSAFE_LED_PIN = 2;
+
+static const int ENABLE_BUTTON_PIN = 18;
 
 static const int RIGHT_FRONT_DRIVE_MOTOR_PIN = 9;
 static const int LEFT_FRONT_DRIVE_MOTOR_PIN = 10;
@@ -38,6 +41,7 @@ static const int SCALED_DEADBAND = 200; //5% deadband because scaled values are 
 Servo rightFrontDriveMotor, leftFrontDriveMotor, rightRearDriveMotor, leftRearDriveMotor;
 
 bool failSafeEnabled = false;
+bool botEnabled = false;
 bool receivedOneSBusPacketSinceReset = false;
 static byte sBusBuffer[25];
 static int sBusPacketsLost = 0;
@@ -54,7 +58,7 @@ int adjustedServoFullReverse = SERVO_FULL_REVERSE - SERVO_SAFETY_MARGIN;
    setup()
  **************************************************************/
 void setup() {
-
+  wdt_disable();
   leftFrontDriveMotor.attach(LEFT_FRONT_DRIVE_MOTOR_PIN,
                              MIN_PWM_SIGNAL_WIDTH, MAX_PWM_SIGNAL_WIDTH);
   rightFrontDriveMotor.attach(RIGHT_FRONT_DRIVE_MOTOR_PIN,
@@ -79,14 +83,23 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(FAILSAFE_LED_PIN, OUTPUT);
+  ledReset();
+
+  pinMode(ENABLE_BUTTON_PIN, INPUT);
+  //pinMode(ENABLE_BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENABLE_BUTTON_PIN), enable, FALLING);
+  
+  //Serial.println("Setting up");
+  wdt_enable(WDTO_1S);
+  botEnabled = false;
 }
 
 /**************************************************************
    loop()
  **************************************************************/
 void loop() {
-
   if (failSafeEnabled) {
+    botEnabled = false;
     digitalWrite(FAILSAFE_LED_PIN, HIGH);
 
     leftFrontDriveMotor.write(SERVO_STOPPED);
@@ -94,7 +107,7 @@ void loop() {
     leftRearDriveMotor.write(SERVO_STOPPED);
     rightRearDriveMotor.write(SERVO_STOPPED);
   }
-  else {
+  else if(botEnabled){
     digitalWrite(FAILSAFE_LED_PIN, LOW);
 
     // put your main code here, to run repeatedly:
@@ -133,6 +146,10 @@ void loop() {
         }
       }
     }
+    wdt_reset();
+  }
+  else{
+    wdt_reset();
   }
 }
 
@@ -167,19 +184,19 @@ void processSBusBuffer()
   //  channels[17] = ((sBusBuffer[23])      & 0x0001) ? 2047 : 0;
   //  channels[18] = ((sBusBuffer[23] >> 1) & 0x0001) ? 2047 : 0;
 
-  /*
-    Serial.print("CH1: ");
-    Serial.println(channels[1]);
+  
+    //Serial.print("CH1: ");
+    //Serial.println(channels[1]);
 
-    Serial.print("CH2: ");
-    Serial.println(channels[2]);
+    //Serial.print("CH2: ");
+    //Serial.println(channels[2]);
 
-    Serial.print("CH3: ");
-    Serial.println(channels[3]);
+    //Serial.print("CH3: ");
+    //Serial.println(channels[3]);
 
-    Serial.print("CH4: ");
-    Serial.println(channels[4]);
-
+    //Serial.print("CH4: ");
+    //Serial.println(channels[4]);
+/*
     Serial.print("CH5: ");
     Serial.println(channels[5]);
     Serial.print("CH6: ");
@@ -411,4 +428,21 @@ int scale(int value) {
  **************************************************************/
 long mapper(long x, long in_min, long in_max, long out_min, long out_max) {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+void ledReset(){
+  digitalWrite(FAILSAFE_LED_PIN, HIGH);
+  delay(500);
+  digitalWrite(FAILSAFE_LED_PIN, LOW);
+  delay(500);
+  digitalWrite(FAILSAFE_LED_PIN, HIGH);
+  delay(500);
+  digitalWrite(FAILSAFE_LED_PIN, LOW);
+  delay(500);
+  
+}
+
+void enable(){
+  botEnabled = true;
+  Serial.println("ENABLED");
 }
