@@ -4,7 +4,10 @@
 
 static const int FAILSAFE_LED_PIN = 2;
 
-static const int ENABLE_BUTTON_PIN = 18;
+static const int ENABLE_BOT_BUTTON_PIN = 18;
+static const int CHILD_MODE_BUTTON_PIN = 20;
+static const int ENABLE_BOT_LED_PIN = 22;
+static const int CHILD_MODE_LED_PIN = 23;
 
 static const int RIGHT_FRONT_DRIVE_MOTOR_PIN = 9;
 static const int LEFT_FRONT_DRIVE_MOTOR_PIN = 10;
@@ -32,6 +35,8 @@ static const int RADIOLINK_CONTROLLER_MINIMUM_VALUE = 200;
 static const int RADIOLINK_CONTROLLER_NEUTRAL_VALUE = 1000;
 static const int RADIOLINK_CONTROLLER_MAXIMUM_VALUE = 1800;
 
+static const int BUTTON_DEBOUNCE_TIME_MS = 300;
+
 int radioLinkTurnValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
 int radioLinkThrottleValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
 int radioLinkStrafeValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
@@ -42,7 +47,9 @@ Servo rightFrontDriveMotor, leftFrontDriveMotor, rightRearDriveMotor, leftRearDr
 
 bool failSafeEnabled = false;
 bool botEnabled = false;
+bool childModeEnabled = true;
 bool receivedOneSBusPacketSinceReset = false;
+
 static byte sBusBuffer[25];
 static int sBusPacketsLost = 0;
 
@@ -82,13 +89,17 @@ void setup() {
   // Setup debug/monitor serial port
   Serial.begin(115200);
 
+  pinMode(ENABLE_BOT_LED_PIN, OUTPUT);
+  pinMode(CHILD_MODE_LED_PIN, OUTPUT);
   pinMode(FAILSAFE_LED_PIN, OUTPUT);
   ledReset();
 
-  pinMode(ENABLE_BUTTON_PIN, INPUT);
-  //pinMode(ENABLE_BUTTON_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(ENABLE_BUTTON_PIN), enable, FALLING);
-  
+  pinMode(ENABLE_BOT_BUTTON_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(ENABLE_BOT_BUTTON_PIN), enableBotButtonPressed, FALLING);
+
+  pinMode(CHILD_MODE_BUTTON_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(CHILD_MODE_BUTTON_PIN), childModeButtonPressed, FALLING);
+
   //Serial.println("Setting up");
   wdt_enable(WDTO_1S);
   botEnabled = false;
@@ -98,16 +109,31 @@ void setup() {
    loop()
  **************************************************************/
 void loop() {
-  if (failSafeEnabled) {
-    botEnabled = false;
-    digitalWrite(FAILSAFE_LED_PIN, HIGH);
 
+  if (childModeEnabled) {
+    digitalWrite(CHILD_MODE_LED_PIN, HIGH);
+  }
+  else {
+    digitalWrite(CHILD_MODE_LED_PIN, LOW);
+  }
+
+  if (botEnabled) {
+    digitalWrite(ENABLE_BOT_LED_PIN, HIGH);
+  }
+  else {
+    digitalWrite(ENABLE_BOT_LED_PIN, LOW);
+  }
+
+  if (failSafeEnabled) {
     leftFrontDriveMotor.write(SERVO_STOPPED);
     rightFrontDriveMotor.write(SERVO_STOPPED);
     leftRearDriveMotor.write(SERVO_STOPPED);
     rightRearDriveMotor.write(SERVO_STOPPED);
+
+    botEnabled = false;
+    digitalWrite(FAILSAFE_LED_PIN, HIGH);
   }
-  else if(botEnabled){
+  else if (botEnabled) {
     digitalWrite(FAILSAFE_LED_PIN, LOW);
 
     // put your main code here, to run repeatedly:
@@ -148,7 +174,7 @@ void loop() {
     }
     wdt_reset();
   }
-  else{
+  else {
     wdt_reset();
   }
 }
@@ -184,27 +210,27 @@ void processSBusBuffer()
   //  channels[17] = ((sBusBuffer[23])      & 0x0001) ? 2047 : 0;
   //  channels[18] = ((sBusBuffer[23] >> 1) & 0x0001) ? 2047 : 0;
 
-  
-    //Serial.print("CH1: ");
-    //Serial.println(channels[1]);
 
-    //Serial.print("CH2: ");
-    //Serial.println(channels[2]);
+  //Serial.print("CH1: ");
+  //Serial.println(channels[1]);
 
-    //Serial.print("CH3: ");
-    //Serial.println(channels[3]);
+  //Serial.print("CH2: ");
+  //Serial.println(channels[2]);
 
-    //Serial.print("CH4: ");
-    //Serial.println(channels[4]);
-/*
-    Serial.print("CH5: ");
-    Serial.println(channels[5]);
-    Serial.print("CH6: ");
-    Serial.println(channels[6]);
-    Serial.print("CH7: ");
-    Serial.println(channels[7]);
-    Serial.print("CH8: ");
-    Serial.println(channels[8]);
+  //Serial.print("CH3: ");
+  //Serial.println(channels[3]);
+
+  //Serial.print("CH4: ");
+  //Serial.println(channels[4]);
+  /*
+      Serial.print("CH5: ");
+      Serial.println(channels[5]);
+      Serial.print("CH6: ");
+      Serial.println(channels[6]);
+      Serial.print("CH7: ");
+      Serial.println(channels[7]);
+      Serial.print("CH8: ");
+      Serial.println(channels[8]);
 
   */
   // Check for signal loss
@@ -227,7 +253,7 @@ void processSBusBuffer()
   {
     receivedOneSBusPacketSinceReset = true;
     //wdt_reset();
-    
+
     radioLinkTurnValue = channels[RADIOLINK_TURN_CHANNEL];
     radioLinkThrottleValue = channels[RADIOLINK_THROTTLE_CHANNEL];
     radioLinkStrafeValue = channels[RADIOLINK_STRAFE_CHANNEL];
@@ -430,7 +456,10 @@ long mapper(long x, long in_min, long in_max, long out_min, long out_max) {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
-void ledReset(){
+/**************************************************************
+   ledReset()
+ **************************************************************/
+void ledReset() {
   digitalWrite(FAILSAFE_LED_PIN, HIGH);
   delay(500);
   digitalWrite(FAILSAFE_LED_PIN, LOW);
@@ -439,10 +468,54 @@ void ledReset(){
   delay(500);
   digitalWrite(FAILSAFE_LED_PIN, LOW);
   delay(500);
-  
 }
 
-void enable(){
-  botEnabled = true;
-  Serial.println("ENABLED");
+/**************************************************************
+   enableBotButtonPressed()
+ **************************************************************/
+void enableBotButtonPressed() {
+
+  static unsigned long last_interrupt_time = 0;
+  unsigned long interrupt_time = millis();
+  
+  // If interrupts come faster than BUTTON_DEBOUNCE_TIME_MS, assume it's a bounce and ignore
+  if (interrupt_time - last_interrupt_time > BUTTON_DEBOUNCE_TIME_MS) {
+    
+    // Toggle the botEnabled flag
+    botEnabled = !botEnabled;
+
+//    if (botEnabled) {
+//      Serial.println("Bot Enabled");
+//    }
+//    else {
+//      Serial.println("Bot Disabled");
+//    }
+  }
+  
+  last_interrupt_time = interrupt_time;
+}
+
+/**************************************************************
+   childModeButtonPressed()
+ **************************************************************/
+void childModeButtonPressed() {
+
+  static unsigned long last_interrupt_time = 0;
+  unsigned long interrupt_time = millis();
+  
+  // If interrupts come faster than BUTTON_DEBOUNCE_TIME_MS, assume it's a bounce and ignore
+  if (interrupt_time - last_interrupt_time > BUTTON_DEBOUNCE_TIME_MS) {
+    
+    // Toggle the childModeEnabled flag
+    childModeEnabled = !childModeEnabled;
+
+//    if (childModeEnabled) {
+//      Serial.println("Child Mode Enabled");
+//    }
+//    else {
+//      Serial.println("Child Mode Disabled");
+//    }
+  }
+  
+  last_interrupt_time = interrupt_time;
 }
