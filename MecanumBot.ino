@@ -23,12 +23,19 @@ static const int SERVO_FULL_FORWARD = 20;
 static const int SERVO_DEADBAND = 8;
 static const int SERVO_SAFETY_MARGIN = 20;
 
+static const float CHILD_MODE_THROTTLE_FACTOR = .1;
+static const float CHILD_MODE_TURN_FACTOR = .2;
+static const float CHILD_MODE_STRAFE_FACTOR = .3;
+
 static const int TURN_CORRECTION = 10;
 static const int TURN_COMPENSATION = 7;
 
+// More information on the SBus: https://github.com/uzh-rpg/rpg_quadrotor_control/wiki/SBUS-Protocol
+static int channels[18];
 static const int RADIOLINK_TURN_CHANNEL = 1;
 static const int RADIOLINK_THROTTLE_CHANNEL = 2;
 static const int RADIOLINK_STRAFE_CHANNEL = 4;
+static const int RADIOLINK_AUTO_CHANNEL = 5;
 static const int RADIOLINK_SHOOT_CANDY_CHANNEL = 6;
 
 static const int RADIOLINK_CONTROLLER_MINIMUM_VALUE = 200;
@@ -41,7 +48,7 @@ int radioLinkTurnValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
 int radioLinkThrottleValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
 int radioLinkStrafeValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
 
-static const int SCALED_DEADBAND = 200; //5% deadband because scaled values are -1000 to 1000
+static const int SCALED_DEADBAND = 100; //5% deadband because scaled values are -1000 to 1000
 
 Servo rightFrontDriveMotor, leftFrontDriveMotor, rightRearDriveMotor, leftRearDriveMotor;
 
@@ -49,6 +56,7 @@ bool failSafeEnabled = false;
 bool botEnabled = false;
 bool childModeEnabled = true;
 bool receivedOneSBusPacketSinceReset = false;
+bool isAuto = false;
 
 static byte sBusBuffer[25];
 static int sBusPacketsLost = 0;
@@ -60,6 +68,12 @@ static int sBusPacketsLost = 0;
 // will always less than this initial value.
 int adjustedServoFullForward = SERVO_FULL_FORWARD + SERVO_SAFETY_MARGIN;
 int adjustedServoFullReverse = SERVO_FULL_REVERSE - SERVO_SAFETY_MARGIN;
+
+//Timed loop variables
+unsigned long startTime = millis();
+int countIterations = 0;
+
+int count = 0;
 
 /**************************************************************
    setup()
@@ -109,7 +123,7 @@ void setup() {
    loop()
  **************************************************************/
 void loop() {
-
+  timedLoop();
   if (childModeEnabled) {
     digitalWrite(CHILD_MODE_LED_PIN, HIGH);
   }
@@ -184,8 +198,6 @@ void loop() {
  **************************************************************/
 void processSBusBuffer()
 {
-  // More information on the SBus: https://github.com/uzh-rpg/rpg_quadrotor_control/wiki/SBUS-Protocol
-  static int channels[18];
 
   // 25 byte packet received is little endian. Details of how the package is explained on this website:
   // http://www.robotmaker.eu/ROBOTmaker/quadcopter-3d-proximity-sensing/sbus-graphical-representation
@@ -231,7 +243,6 @@ void processSBusBuffer()
       Serial.println(channels[7]);
       Serial.print("CH8: ");
       Serial.println(channels[8]);
-
   */
   // Check for signal loss
   if ((sBusBuffer[23] >> 2) & 0x0001)
@@ -274,75 +285,38 @@ void processSBusBuffer()
     radioLinkThrottleValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
     radioLinkStrafeValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
   }
+  if(channels[RADIOLINK_AUTO_CHANNEL] == 200){
+    isAuto = true;
+  }
+  else{
+    isAuto = false;
+  }
 }
 
 /**************************************************************
    handleDriveMotors()
  **************************************************************/
 void handleDriveMotors() {
-  int turn = map(radioLinkThrottleValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
-  int strafe = map(radioLinkStrafeValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
-  int throttle = -map(radioLinkTurnValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
+  if(!isAuto){
+    int throttle = map(radioLinkThrottleValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
+    int strafe = map(radioLinkStrafeValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
+    int turn = -map(radioLinkTurnValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
 
-  throttle = applyDeadband(throttle);
-  strafe = applyDeadband(strafe);
-  turn = applyDeadband(turn);
-  /*
-    Serial.print("Throttle: ");
-    Serial.println(throttle);
-    Serial.print("Strafe: ");
-    Serial.println(strafe);
-    Serial.print("Turn: ");
-    Serial.println(turn);
-  */
+    throttle = applyDeadband(throttle);
+    strafe = applyDeadband(strafe);
+    turn = applyDeadband(turn);
 
-  int frontLeft = throttle + turn - strafe;
-  int frontRight = throttle - turn - strafe;
-  int backLeft = throttle + turn + strafe;
-  int backRight = throttle - turn + strafe;
-
-  /*
-    int maximum = calcMax(abs(frontLeft), abs(frontRight), abs(backLeft), abs(backRight));
-    Serial.println(maximum);
-    if(maximum > 180){
-    frontLeft *= 1000;
-    frontLeft /= maximum;
-    frontRight *= 1000;
-    frontRight /= maximum;
-    backLeft *= 1000;
-    backLeft /= maximum;
-    backRight *= 1000;
-    backRight /= maximum;
-
-    frontLeft = map(frontLeft, -1000, 1000, 0, 180);
-    frontRight = map(frontRight, -1000, 1000, 0, 180);
-    backLeft = map(backLeft, -1000, 1000, 0, 180);
-    backRight = map(backRight, -1000, 1000, 0, 180);
+    if(childModeEnabled){
+      turn *= CHILD_MODE_THROTTLE_FACTOR;
+      strafe *= CHILD_MODE_STRAFE_FACTOR;
+      throttle *= CHILD_MODE_TURN_FACTOR;
     }
-  */
-  /*
-    Serial.print("Front Left: ");
-    Serial.println(frontLeft);
-    Serial.print("Back Left: ");
-    Serial.println(backLeft);
-    Serial.print("Front Right: ");
-    Serial.println(frontRight);
-    Serial.print("Back Right: ");
-    Serial.println(backRight);
-  */
-  /*
-    int maximum = calcMax(abs(frontLeft), abs(frontRight), abs(backLeft), abs(backRight));
-    if(maximum > 1000 || maximum < -1000){
-    frontLeft *= 1000;
-    frontLeft /= maximum;
-    frontRight *= 1000;
-    frontRight /= maximum;
-    backLeft *= 1000;
-    backLeft /= maximum;
-    backRight *= 1000;
-    backRight /= maximum;
-    }
-  */
+  
+  int frontLeft = turn + throttle - strafe;
+  int frontRight = turn - throttle - strafe;
+  int backLeft = turn + throttle + strafe;
+  int backRight = turn - throttle + strafe;
+
   frontLeft = scale(frontLeft);
   backLeft = scale(backLeft);
   frontRight = scale(frontRight);
@@ -353,65 +327,20 @@ void handleDriveMotors() {
   backLeft = mapper(backLeft, -1000, 1000, 0, 180);
   backRight = mapper(backRight, -1000, 1000, 0, 180);
 
-  /*
-    Serial.print("Front Left: ");
-    Serial.println(frontLeft);
-    Serial.print("Back Left: ");
-    Serial.println(backLeft);
-    Serial.print("Front Right: ");
-    Serial.println(frontRight);
-    Serial.print("Back Right: ");
-    Serial.println(backRight);
-
-  */
   leftFrontDriveMotor.write(frontLeft);
   leftRearDriveMotor.write(backLeft);
   rightFrontDriveMotor.write(frontRight);
   rightRearDriveMotor.write(backRight);
-  /*
-    bool isDrivingStraight = false;
-    int leftThrottle = map(radioLinkThrottleValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, 0, 180);
-    int rightThrottle = map(radioLinkThrottleValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, 180, 0);
-    Serial.println(leftThrottle);
-    Serial.println(rightThrottle);
-    if(abs(leftThrottle - SERVO_STOPPED) > SERVO_DEADBAND){
-        isDrivingStraight = true;
-        leftFrontDriveMotor.write(leftThrottle);
-        leftRearDriveMotor.write(leftThrottle);
-    }
-    else{
-    leftFrontDriveMotor.write(SERVO_STOPPED);
-    leftRearDriveMotor.write(SERVO_STOPPED);
-    }
-    if(abs(rightThrottle - SERVO_STOPPED) > SERVO_DEADBAND){
-        rightFrontDriveMotor.write(rightThrottle);
-        rightRearDriveMotor.write(rightThrottle);
-    }
-    else{
-    rightFrontDriveMotor.write(SERVO_STOPPED);
-    rightRearDriveMotor.write(SERVO_STOPPED);
-    }
-    if(!isDrivingStraight){
-    int leftTurn = map(radioLinkTurnValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, 0, 180);
-    int rightTurn = map(radioLinkTurnValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, 180, 0);
-    if(abs(leftTurn - SERVO_STOPPED) > SERVO_DEADBAND){
-        leftFrontDriveMotor.write(leftTurn);
-        leftRearDriveMotor.write(-leftTurn);
-    }
-    else{
-    leftFrontDriveMotor.write(SERVO_STOPPED);
-    leftRearDriveMotor.write(SERVO_STOPPED);
-    }
-    if(abs(rightTurn - SERVO_STOPPED) > SERVO_DEADBAND){
-        rightFrontDriveMotor.write(-rightTurn);
-        rightRearDriveMotor.write(rightTurn);
-    }
-    else{
-    rightFrontDriveMotor.write(SERVO_STOPPED);
-    rightRearDriveMotor.write(SERVO_STOPPED);
-    }
-  */
 
+  }
+  else{
+    if(count < 12){
+    autoMove(160, 0, 0);
+    }
+    else{
+      isAuto = false;
+    }
+  }
 }
 
 /**************************************************************
@@ -518,4 +447,64 @@ void childModeButtonPressed() {
   }
   
   last_interrupt_time = interrupt_time;
+}
+
+void timedLoop(){
+  unsigned long currTime = millis(); 
+  if(currTime >= startTime + 10 * countIterations){
+    countIterations++;
+
+      //this shouldn't be called but if it is it will reset
+  if(countIterations > 100){
+    countIterations = 0;
+    startTime = millis();
+  }
+  
+  //1 second
+  if(countIterations % 100 == 0){
+    countIterations = 0;
+    startTime = millis();
+  }
+  
+  //500 milliseconds
+  if(countIterations % 50 == 0){
+  }
+  
+  //250 milliseconds
+  if(countIterations % 25 == 0){
+    count++;
+
+    if(channels[RADIOLINK_AUTO_CHANNEL] == 200 && !isAuto){
+      count = 0;
+      isAuto = true;
+    }
+  }
+  }
+}
+
+void autoMove(int throttle, int strafe, int turn){
+  turn = -turn;
+    throttle = applyDeadband(throttle);
+    strafe = applyDeadband(strafe);
+    turn = applyDeadband(turn);
+
+  int frontLeft = turn + throttle - strafe;
+  int frontRight = turn - throttle - strafe;
+  int backLeft = turn + throttle + strafe;
+  int backRight = turn - throttle + strafe;
+
+  frontLeft = scale(frontLeft);
+  backLeft = scale(backLeft);
+  frontRight = scale(frontRight);
+  backRight = scale(backRight);
+
+  frontLeft = mapper(frontLeft, -1000, 1000, 0, 180);
+  frontRight = mapper(frontRight, -1000, 1000, 0, 180);
+  backLeft = mapper(backLeft, -1000, 1000, 0, 180);
+  backRight = mapper(backRight, -1000, 1000, 0, 180);
+
+  leftFrontDriveMotor.write(frontLeft);
+  leftRearDriveMotor.write(backLeft);
+  rightFrontDriveMotor.write(frontRight);
+  rightRearDriveMotor.write(backRight);
 }
