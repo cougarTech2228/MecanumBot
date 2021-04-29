@@ -23,15 +23,13 @@ static const int SERVO_FULL_FORWARD = 20;
 static const int SERVO_DEADBAND = 8;
 static const int SERVO_SAFETY_MARGIN = 20;
 
-static const float CHILD_MODE_THROTTLE_FACTOR = .1;
+static const float CHILD_MODE_THROTTLE_FACTOR = .2;
 static const float CHILD_MODE_TURN_FACTOR = .2;
 static const float CHILD_MODE_STRAFE_FACTOR = .3;
 
 static const int TURN_CORRECTION = 10;
 static const int TURN_COMPENSATION = 7;
 
-// More information on the SBus: https://github.com/uzh-rpg/rpg_quadrotor_control/wiki/SBUS-Protocol
-static int channels[18];
 static const int RADIOLINK_TURN_CHANNEL = 1;
 static const int RADIOLINK_THROTTLE_CHANNEL = 2;
 static const int RADIOLINK_STRAFE_CHANNEL = 4;
@@ -44,11 +42,14 @@ static const int RADIOLINK_CONTROLLER_MAXIMUM_VALUE = 1800;
 
 static const int BUTTON_DEBOUNCE_TIME_MS = 300;
 
+static const int SCALED_DEADBAND = 100; //5% deadband because scaled values are -1000 to 1000
+
+// More information on the SBus: https://github.com/uzh-rpg/rpg_quadrotor_control/wiki/SBUS-Protocol
+static int channels[18];
+
 int radioLinkTurnValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
 int radioLinkThrottleValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
 int radioLinkStrafeValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
-
-static const int SCALED_DEADBAND = 100; //5% deadband because scaled values are -1000 to 1000
 
 Servo rightFrontDriveMotor, leftFrontDriveMotor, rightRearDriveMotor, leftRearDriveMotor;
 
@@ -73,48 +74,31 @@ int adjustedServoFullReverse = SERVO_FULL_REVERSE - SERVO_SAFETY_MARGIN;
 unsigned long startTime = millis();
 int countIterations = 0;
 
-int count = 0;
+
+
+
+
 
 /**************************************************************
    setup()
  **************************************************************/
 void setup() {
   wdt_disable();
-  leftFrontDriveMotor.attach(LEFT_FRONT_DRIVE_MOTOR_PIN,
-                             MIN_PWM_SIGNAL_WIDTH, MAX_PWM_SIGNAL_WIDTH);
-  rightFrontDriveMotor.attach(RIGHT_FRONT_DRIVE_MOTOR_PIN,
-                              MIN_PWM_SIGNAL_WIDTH, MAX_PWM_SIGNAL_WIDTH);
-  leftRearDriveMotor.attach(LEFT_REAR_DRIVE_MOTOR_PIN,
-                            MIN_PWM_SIGNAL_WIDTH, MAX_PWM_SIGNAL_WIDTH);
-  rightRearDriveMotor.attach(RIGHT_REAR_DRIVE_MOTOR_PIN,
-                             MIN_PWM_SIGNAL_WIDTH, MAX_PWM_SIGNAL_WIDTH);
 
-  // Set the drive motors to their "stopped" position
-  leftFrontDriveMotor.write(SERVO_STOPPED);
-  rightFrontDriveMotor.write(SERVO_STOPPED);
-  leftRearDriveMotor.write(SERVO_STOPPED);
-  rightRearDriveMotor.write(SERVO_STOPPED);
-
-  // put your setup code here, to run once:
+  setupDriveMotors();
   //The SBUS is a non standard baud rate of 100 kbs
   Serial1.begin(100000, SERIAL_8E2);
+  // put your setup code here, to run once:
   Serial1.flush();
 
   // Setup debug/monitor serial port
   Serial.begin(115200);
 
-  pinMode(ENABLE_BOT_LED_PIN, OUTPUT);
-  pinMode(CHILD_MODE_LED_PIN, OUTPUT);
-  pinMode(FAILSAFE_LED_PIN, OUTPUT);
-  ledReset();
+  setupLEDs();
 
-  pinMode(ENABLE_BOT_BUTTON_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(ENABLE_BOT_BUTTON_PIN), enableBotButtonPressed, FALLING);
-
-  pinMode(CHILD_MODE_BUTTON_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(CHILD_MODE_BUTTON_PIN), childModeButtonPressed, FALLING);
-
-  //Serial.println("Setting up");
+  //sets up interrupts for the child mode and enable buttons
+  setupButtonInterrupts();
+  
   wdt_enable(WDTO_1S);
   botEnabled = false;
 }
@@ -123,69 +107,18 @@ void setup() {
    loop()
  **************************************************************/
 void loop() {
+  botEnabled = true;
   timedLoop();
-  if (childModeEnabled) {
-    digitalWrite(CHILD_MODE_LED_PIN, HIGH);
-  }
-  else {
-    digitalWrite(CHILD_MODE_LED_PIN, LOW);
-  }
-
-  if (botEnabled) {
-    digitalWrite(ENABLE_BOT_LED_PIN, HIGH);
-  }
-  else {
-    digitalWrite(ENABLE_BOT_LED_PIN, LOW);
-  }
-
   if (failSafeEnabled) {
-    leftFrontDriveMotor.write(SERVO_STOPPED);
-    rightFrontDriveMotor.write(SERVO_STOPPED);
-    leftRearDriveMotor.write(SERVO_STOPPED);
-    rightRearDriveMotor.write(SERVO_STOPPED);
-
+    stopDriveMotors();
     botEnabled = false;
-    digitalWrite(FAILSAFE_LED_PIN, HIGH);
   }
   else if (botEnabled) {
-    digitalWrite(FAILSAFE_LED_PIN, LOW);
-
     // put your main code here, to run repeatedly:
-    static int sBusErrors = 0;
-    static int sBusByteIndex = 0;
-    byte nextSBusByte;
-
-    //Check the SBus serial port for incoming SBus data
-    if (Serial1.available ())
-    {
-      nextSBusByte = Serial1.read ();
-      //This is a new package and it's not the first byte then it's probably the start byte B11110000 (sent MSB)
-      //so start reading the 25 byte packet
-      if ((sBusByteIndex == 0) && (nextSBusByte != 0x0F))
-      {
-        // error - keep waiting for the start byte
-      }
-      else
-      {
-        sBusBuffer[sBusByteIndex++] = nextSBusByte;  // fill the buffer with the bytes until the end byte B0000000 is received
-      }
-
-      // If we've got 25 bytes then this is a good packet so start to decode
-      if (sBusByteIndex == 25)
-      {
-        sBusByteIndex = 0;
-
-        if (sBusBuffer[24] == 0x00)
-        {
-          processSBusBuffer();
-          handleDriveMotors();
-        }
-        else
-        {
-          sBusErrors++; //?????
-        }
-      }
-    }
+    
+      //handle drive motors is called from inside processControllerData();
+      processControllerData();
+    
     wdt_reset();
   }
   else {
@@ -194,317 +127,37 @@ void loop() {
 }
 
 /**************************************************************
-   processSBusBuffer()
+   timedLoop()
  **************************************************************/
-void processSBusBuffer()
-{
-
-  // 25 byte packet received is little endian. Details of how the package is explained on this website:
-  // http://www.robotmaker.eu/ROBOTmaker/quadcopter-3d-proximity-sensing/sbus-graphical-representation
-
-  channels[1]  = ((sBusBuffer[1]       | sBusBuffer[2] << 8)                        & 0x07FF);
-  channels[2]  = ((sBusBuffer[2] >> 3  | sBusBuffer[3] << 5)                        & 0x07FF);
-  channels[3]  = ((sBusBuffer[3] >> 6  | sBusBuffer[4] << 2 | sBusBuffer[5] << 10)  & 0x07FF);
-  channels[4]  = ((sBusBuffer[5] >> 1  | sBusBuffer[6] << 7)                        & 0x07FF);
-  channels[5]  = ((sBusBuffer[6] >> 4  | sBusBuffer[7] << 4)                        & 0x07FF);
-  channels[6]  = ((sBusBuffer[7] >> 7  | sBusBuffer[8] << 1 | sBusBuffer[9] << 9)   & 0x07FF);
-  channels[7]  = ((sBusBuffer[9] >> 2  | sBusBuffer[10] << 6)                       & 0x07FF);
-  channels[8]  = ((sBusBuffer[10] >> 5 | sBusBuffer[11] << 3)                       & 0x07FF);
-  // We only have 8 channels with our receiver ...
-  //  channels[9]  = ((sBusBuffer[12]   | sBusBuffer[13] << 8)                & 0x07FF);
-  //  channels[10]  = ((sBusBuffer[13] >> 3 | sBusBuffer[14] << 5)                & 0x07FF);
-  //  channels[11] = ((sBusBuffer[14] >> 6 | sBusBuffer[15] << 2 | sBusBuffer[16] << 10) & 0x07FF);
-  //  channels[12] = ((sBusBuffer[16] >> 1 | sBusBuffer[17] << 7)                & 0x07FF);
-  //  channels[13] = ((sBusBuffer[17] >> 4 | sBusBuffer[18] << 4)                & 0x07FF);
-  //  channels[14] = ((sBusBuffer[18] >> 7 | sBusBuffer[19] << 1 | sBusBuffer[20] << 9)  & 0x07FF);
-  //  channels[15] = ((sBusBuffer[20] >> 2 | sBusBufferr[21] << 6)                & 0x07FF);
-  //  channels[16] = ((sBusBuffer[21] >> 5 | sBusBuffer[22] << 3)                & 0x07FF);
-  //  channels[17] = ((sBusBuffer[23])      & 0x0001) ? 2047 : 0;
-  //  channels[18] = ((sBusBuffer[23] >> 1) & 0x0001) ? 2047 : 0;
-
-
-  //Serial.print("CH1: ");
-  //Serial.println(channels[1]);
-
-  //Serial.print("CH2: ");
-  //Serial.println(channels[2]);
-
-  //Serial.print("CH3: ");
-  //Serial.println(channels[3]);
-
-  //Serial.print("CH4: ");
-  //Serial.println(channels[4]);
-  /*
-      Serial.print("CH5: ");
-      Serial.println(channels[5]);
-      Serial.print("CH6: ");
-      Serial.println(channels[6]);
-      Serial.print("CH7: ");
-      Serial.println(channels[7]);
-      Serial.print("CH8: ");
-      Serial.println(channels[8]);
-  */
-  // Check for signal loss
-  if ((sBusBuffer[23] >> 2) & 0x0001)
-  {
-    sBusPacketsLost++;
-    //Serial.print("Signal Lost: ");
-    //Serial.println(sBusPacketsLost);
-
-    if (receivedOneSBusPacketSinceReset) {
-      failSafeEnabled = true;
-    }
-
-    // Make sure the robot doesn't move when the signal is lost
-    /*radioLinkTurnValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
-      radioLinkThrottleValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
-      radioLinkStrafeValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;*/
-  }
-  else // Everything is okay so process the current values
-  {
-    receivedOneSBusPacketSinceReset = true;
-    //wdt_reset();
-
-    radioLinkTurnValue = channels[RADIOLINK_TURN_CHANNEL];
-    radioLinkThrottleValue = channels[RADIOLINK_THROTTLE_CHANNEL];
-    radioLinkStrafeValue = channels[RADIOLINK_STRAFE_CHANNEL];
-  }
-
-  /*
-    Serial.print("Throttle: ");
-    Serial.print(radioLinkThrottleValue);
-    Serial.print(" Turn: ");
-    Serial.println(radioLinkTurnValue);
-  */
-
-  if (channels[RADIOLINK_SHOOT_CANDY_CHANNEL] == RADIOLINK_CONTROLLER_MAXIMUM_VALUE)
-  {
-    Serial.println("Shoot Candy");
-    failSafeEnabled = true;
-    radioLinkTurnValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
-    radioLinkThrottleValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
-    radioLinkStrafeValue = RADIOLINK_CONTROLLER_NEUTRAL_VALUE;
-  }
-  if(channels[RADIOLINK_AUTO_CHANNEL] == 200){
-    isAuto = true;
-  }
-  else{
-    isAuto = false;
-  }
-}
-
-/**************************************************************
-   handleDriveMotors()
- **************************************************************/
-void handleDriveMotors() {
-  if(!isAuto){
-    int throttle = map(radioLinkThrottleValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
-    int strafe = map(radioLinkStrafeValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
-    int turn = -map(radioLinkTurnValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
-
-    throttle = applyDeadband(throttle);
-    strafe = applyDeadband(strafe);
-    turn = applyDeadband(turn);
-
-    if(childModeEnabled){
-      turn *= CHILD_MODE_THROTTLE_FACTOR;
-      strafe *= CHILD_MODE_STRAFE_FACTOR;
-      throttle *= CHILD_MODE_TURN_FACTOR;
-    }
-  
-  int frontLeft = turn + throttle - strafe;
-  int frontRight = turn - throttle - strafe;
-  int backLeft = turn + throttle + strafe;
-  int backRight = turn - throttle + strafe;
-
-  frontLeft = scale(frontLeft);
-  backLeft = scale(backLeft);
-  frontRight = scale(frontRight);
-  backRight = scale(backRight);
-
-  frontLeft = mapper(frontLeft, -1000, 1000, 0, 180);
-  frontRight = mapper(frontRight, -1000, 1000, 0, 180);
-  backLeft = mapper(backLeft, -1000, 1000, 0, 180);
-  backRight = mapper(backRight, -1000, 1000, 0, 180);
-
-  leftFrontDriveMotor.write(frontLeft);
-  leftRearDriveMotor.write(backLeft);
-  rightFrontDriveMotor.write(frontRight);
-  rightRearDriveMotor.write(backRight);
-
-  }
-  else{
-    if(count < 12){
-    autoMove(160, 0, 0);
-    }
-    else{
-      isAuto = false;
-    }
-  }
-}
-
-/**************************************************************
-   applyDeadband()
- **************************************************************/
-int applyDeadband(int value) {
-  if (abs(value) <= SCALED_DEADBAND) {
-    return 0;
-  }
-  else {
-    return value;
-  }
-}
-
-/**************************************************************
-   calcMax()
- **************************************************************/
-int calcMax(int a, int b, int c, int d) {
-  int maximum = max(a, b);
-  maximum = max(maximum, c);
-  maximum = max(maximum, d);
-  return maximum;
-}
-
-/**************************************************************
-   scale()
- **************************************************************/
-int scale(int value) {
-  if (value > 1000) {
-    return 1000;
-  }
-  else if (value < -1000) {
-    return -1000;
-  }
-  return value;
-}
-
-/**************************************************************
-   mapper()
- **************************************************************/
-long mapper(long x, long in_min, long in_max, long out_min, long out_max) {
-  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-}
-
-/**************************************************************
-   ledReset()
- **************************************************************/
-void ledReset() {
-  digitalWrite(FAILSAFE_LED_PIN, HIGH);
-  delay(500);
-  digitalWrite(FAILSAFE_LED_PIN, LOW);
-  delay(500);
-  digitalWrite(FAILSAFE_LED_PIN, HIGH);
-  delay(500);
-  digitalWrite(FAILSAFE_LED_PIN, LOW);
-  delay(500);
-}
-
-/**************************************************************
-   enableBotButtonPressed()
- **************************************************************/
-void enableBotButtonPressed() {
-
-  static unsigned long last_interrupt_time = 0;
-  unsigned long interrupt_time = millis();
-  
-  // If interrupts come faster than BUTTON_DEBOUNCE_TIME_MS, assume it's a bounce and ignore
-  if (interrupt_time - last_interrupt_time > BUTTON_DEBOUNCE_TIME_MS) {
-    
-    // Toggle the botEnabled flag
-    botEnabled = !botEnabled;
-
-//    if (botEnabled) {
-//      Serial.println("Bot Enabled");
-//    }
-//    else {
-//      Serial.println("Bot Disabled");
-//    }
-  }
-  
-  last_interrupt_time = interrupt_time;
-}
-
-/**************************************************************
-   childModeButtonPressed()
- **************************************************************/
-void childModeButtonPressed() {
-
-  static unsigned long last_interrupt_time = 0;
-  unsigned long interrupt_time = millis();
-  
-  // If interrupts come faster than BUTTON_DEBOUNCE_TIME_MS, assume it's a bounce and ignore
-  if (interrupt_time - last_interrupt_time > BUTTON_DEBOUNCE_TIME_MS) {
-    
-    // Toggle the childModeEnabled flag
-    childModeEnabled = !childModeEnabled;
-
-//    if (childModeEnabled) {
-//      Serial.println("Child Mode Enabled");
-//    }
-//    else {
-//      Serial.println("Child Mode Disabled");
-//    }
-  }
-  
-  last_interrupt_time = interrupt_time;
-}
-
-void timedLoop(){
-  unsigned long currTime = millis(); 
-  if(currTime >= startTime + 10 * countIterations){
+void timedLoop() {
+  unsigned long currTime = millis();
+  if (currTime >= startTime + 10 * countIterations) {
     countIterations++;
 
-      //this shouldn't be called but if it is it will reset
-  if(countIterations > 100){
-    countIterations = 0;
-    startTime = millis();
-  }
-  
-  //1 second
-  if(countIterations % 100 == 0){
-    countIterations = 0;
-    startTime = millis();
-  }
-  
-  //500 milliseconds
-  if(countIterations % 50 == 0){
-  }
-  
-  //250 milliseconds
-  if(countIterations % 25 == 0){
-    count++;
+    //this shouldn't be called but if it is it will reset
+    if (countIterations > 100) {
+      countIterations = 0;
+      startTime = millis();
+    }
 
-    if(channels[RADIOLINK_AUTO_CHANNEL] == 200 && !isAuto){
-      count = 0;
-      isAuto = true;
+    //1 second
+    if (countIterations % 100 == 0) {
+      countIterations = 0;
+      startTime = millis();
+    }
+
+    //500 milliseconds
+    if (countIterations % 50 == 0) {
+    }
+
+    //250 milliseconds
+    if (countIterations % 25 == 0) {
+      updateLEDs();
+    }
+
+    //100 milliseconds
+    if (countIterations % 10 == 0) {
+
     }
   }
-  }
-}
-
-void autoMove(int throttle, int strafe, int turn){
-  turn = -turn;
-    throttle = applyDeadband(throttle);
-    strafe = applyDeadband(strafe);
-    turn = applyDeadband(turn);
-
-  int frontLeft = turn + throttle - strafe;
-  int frontRight = turn - throttle - strafe;
-  int backLeft = turn + throttle + strafe;
-  int backRight = turn - throttle + strafe;
-
-  frontLeft = scale(frontLeft);
-  backLeft = scale(backLeft);
-  frontRight = scale(frontRight);
-  backRight = scale(backRight);
-
-  frontLeft = mapper(frontLeft, -1000, 1000, 0, 180);
-  frontRight = mapper(frontRight, -1000, 1000, 0, 180);
-  backLeft = mapper(backLeft, -1000, 1000, 0, 180);
-  backRight = mapper(backRight, -1000, 1000, 0, 180);
-
-  leftFrontDriveMotor.write(frontLeft);
-  leftRearDriveMotor.write(backLeft);
-  rightFrontDriveMotor.write(frontRight);
-  rightRearDriveMotor.write(backRight);
 }
