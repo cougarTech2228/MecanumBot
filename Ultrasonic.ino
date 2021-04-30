@@ -65,21 +65,20 @@ void oneSensorCycle() { // Do something with the results.
     Serial.print(cm[index]);
     Serial.print("cm ");*/
 
-    lcd.setCursor(7, index); // Set the cursor on the third column and first row.
-    lcd.print("   ");
-    lcd.print(cm[index]);
+
   }
   //Serial.println();
 }
-int getFrontUltrasonic(){
-  return cm[0];
+int getFrontUltrasonic(int index){
+  return cm[index];
 }
-int getRightUltrasonic(){
-  return cm[1];
-}
-int getRearUltrasonic(){
-  return cm[2];
-}
-int getLeftUltrasonic(){
-  return cm[3];
+void ultrasonicDebug(){
+  static int index = 0;
+    //lcd.setCursor(7, index); // Set the cursor on the third column and first row.
+    //lcd.print("   ");
+    //lcd.print(cm[index]);
+    index++;
+    if(index == NUM_ULTRASONIC_SENSORS){
+      index = 0;
+    }
 }

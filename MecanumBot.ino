@@ -12,6 +12,11 @@ static const int CHILD_MODE_BUTTON_PIN = 20;
 static const int ENABLE_BOT_LED_PIN = 22;
 static const int CHILD_MODE_LED_PIN = 23;
 
+static const int FRONT_ULTRASONIC = 0;
+static const int RIGHT_ULTRASONIC = 1;
+static const int REAR_ULTRASONIC = 2;
+static const int LEFT_ULTRASONIC = 3;
+
 static const int RIGHT_FRONT_DRIVE_MOTOR_PIN = 9;
 static const int LEFT_FRONT_DRIVE_MOTOR_PIN = 10;
 static const int RIGHT_REAR_DRIVE_MOTOR_PIN = 11;
@@ -140,7 +145,7 @@ void timedLoop() {
   if (currTime >= startTime + 10 * countIterations) {
     countIterations++;
 
-    //this shouldn't be called but if it is it will reset
+    //this shouldn't be called but if it is it will reset the loop
     if (countIterations > 100) {
       countIterations = 0;
       startTime = millis();
@@ -150,10 +155,12 @@ void timedLoop() {
     if (countIterations % 100 == 0) {
       countIterations = 0;
       startTime = millis();
+      ultrasonicDebug();
     }
 
     //500 milliseconds
     if (countIterations % 50 == 0) {
+      
     }
 
     //250 milliseconds
@@ -163,7 +170,7 @@ void timedLoop() {
 
     //100 milliseconds
     if (countIterations % 10 == 0) {
-
+      
     }
   }
 }

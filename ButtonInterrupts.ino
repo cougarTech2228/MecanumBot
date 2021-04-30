@@ -31,7 +31,7 @@ void enableBotButtonPressed() {
    childModeButtonPressed()
  **************************************************************/
 void childModeButtonPressed() {
-
+  Serial.println("CHild mode pressed");
   static unsigned long last_interrupt_time = 0;
   unsigned long interrupt_time = millis();
 
