@@ -1,6 +1,9 @@
 #include <Servo.h>
 #include <SoftwareSerial.h>
 #include <avr/wdt.h>
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 20, 4);
 
 static const int FAILSAFE_LED_PIN = 2;
 
@@ -99,6 +102,9 @@ void setup() {
   //sets up interrupts for the child mode and enable buttons
   setupButtonInterrupts();
   
+  lcdSetup();
+  ultrasonicSetup();
+
   wdt_enable(WDTO_1S);
   botEnabled = false;
 }
@@ -107,7 +113,7 @@ void setup() {
    loop()
  **************************************************************/
 void loop() {
-  botEnabled = true;
+  ultrasonicLoop();
   timedLoop();
   if (failSafeEnabled) {
     stopDriveMotors();

@@ -1,7 +1,7 @@
 /**************************************************************
    setupLEDs()
  **************************************************************/
-\void setupLEDs()
+void setupLEDs()
 {
   pinMode(ENABLE_BOT_LED_PIN, OUTPUT);
   pinMode(CHILD_MODE_LED_PIN, OUTPUT);
