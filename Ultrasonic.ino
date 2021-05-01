@@ -69,14 +69,14 @@ void oneSensorCycle() { // Do something with the results.
   }
   //Serial.println();
 }
-int getFrontUltrasonic(int index){
+int getUltrasonicDistCm(int index){
   return cm[index];
 }
 void ultrasonicDebug(){
   static int index = 0;
-    //lcd.setCursor(7, index); // Set the cursor on the third column and first row.
-    //lcd.print("   ");
-    //lcd.print(cm[index]);
+    lcd.setCursor(7, index); // Set the cursor on the third column and first row.
+    lcd.write("   ");
+    lcd.write(cm[index]);
     index++;
     if(index == NUM_ULTRASONIC_SENSORS){
       index = 0;

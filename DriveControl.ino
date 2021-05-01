@@ -24,14 +24,16 @@ void handleDriveMotors() {
   int strafe = 0;
   int turn = 0;
   if (!isAuto) {
-    throttle = map(radioLinkThrottleValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
+    throttle = -map(radioLinkThrottleValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
     strafe = map(radioLinkStrafeValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
     turn = map(radioLinkTurnValue, RADIOLINK_CONTROLLER_MINIMUM_VALUE, RADIOLINK_CONTROLLER_MAXIMUM_VALUE, -1000, 1000);
   }
   else {
-    throttle = 0;
-    strafe = 0;
-    turn = 0;
+    //autoDriving returns throttle, strafe, and turn values; 
+    calculateDriveValues();
+    throttle = getCalculatedThrottleValue();
+    strafe = getCalculatedStrafeValue();
+    turn = getCalculatedTurnValue();
   }
   move(throttle, strafe, turn);
 }
@@ -76,6 +78,7 @@ int scale(int value) {
  **************************************************************/
 void move(int throttle, int strafe, int turn) {
   turn = -turn;
+  throttle = -throttle; 
 
   if (!isAuto) {
     throttle = applyDeadband(throttle);

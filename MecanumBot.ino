@@ -107,7 +107,7 @@ void setup() {
   //sets up interrupts for the child mode and enable buttons
   setupButtonInterrupts();
   
-  lcdSetup();
+  //lcdSetup();
   ultrasonicSetup();
 
   wdt_enable(WDTO_1S);
@@ -155,7 +155,7 @@ void timedLoop() {
     if (countIterations % 100 == 0) {
       countIterations = 0;
       startTime = millis();
-      ultrasonicDebug();
+      //ultrasonicDebug();
     }
 
     //500 milliseconds
