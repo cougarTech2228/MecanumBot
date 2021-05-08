@@ -101,14 +101,16 @@ void setup() {
 
   // Setup debug/monitor serial port
   Serial.begin(115200);
-
+  stopDriveMotors();
   setupLEDs();
 
   //sets up interrupts for the child mode and enable buttons
   setupButtonInterrupts();
-  
+  stopDriveMotors();
   //lcdSetup();
   ultrasonicSetup();
+  stopDriveMotors();
+  gyroSetup();
 
   wdt_enable(WDTO_1S);
   botEnabled = false;
@@ -119,6 +121,7 @@ void setup() {
  **************************************************************/
 void loop() {
   ultrasonicLoop();
+
   timedLoop();
   if (failSafeEnabled) {
     stopDriveMotors();
@@ -160,7 +163,7 @@ void timedLoop() {
 
     //500 milliseconds
     if (countIterations % 50 == 0) {
-      
+        //gyroLoop();
     }
 
     //250 milliseconds
@@ -170,7 +173,6 @@ void timedLoop() {
 
     //100 milliseconds
     if (countIterations % 10 == 0) {
-      
     }
   }
 }

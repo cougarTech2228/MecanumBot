@@ -134,6 +134,7 @@ void processSBusBuffer()
   }
   if (channels[RADIOLINK_AUTO_CHANNEL] == 200) {
     isAuto = true;
+    setGyroYawOffset();
   }
   else {
     isAuto = false;
